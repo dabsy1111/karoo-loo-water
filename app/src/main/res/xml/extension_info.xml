@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ExtensionInfo
+    id="loowater"
+    displayName="@string/extension_name"
+    icon="@drawable/ic_extension"
+    scansDevices="false"
+    mapLayer="true"
+    fitFile="false">
+    <DataType
+        typeId="nearest-toilet"
+        displayName="@string/toilet_field"
+        description="@string/toilet_field_description"
+        graphical="true"
+        icon="@drawable/ic_toilet" />
+    <DataType
+        typeId="nearest-water"
+        displayName="@string/water_field"
+        description="@string/water_field_description"
+        graphical="true"
+        icon="@drawable/ic_water" />
+    <BonusAction
+        actionId="route-toilet"
+        displayName="@string/action_toilet" />
+    <BonusAction
+        actionId="route-water"
+        displayName="@string/action_water" />
+</ExtensionInfo>

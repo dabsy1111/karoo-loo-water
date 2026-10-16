@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Water drop. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF1E88E5"
+        android:pathData="M12,2C12,2 5,10.2 5,14.5a7,7 0,0 0,14 0C19,10.2 12,2 12,2z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M8.5,14.5a1,1 0,0 1,2 0a2,2 0,0 0,1.5 1.9a1,1 0,0 1,-0.5 1.9A4,4 0,0 1,8.5 14.5z" />
+</vector>

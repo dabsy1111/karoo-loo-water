@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="field_text">#FF000000</color>
+    <color name="field_subtext">#FF555555</color>
+    <color name="toilet_accent">#FF7B3FA0</color>
+    <color name="water_accent">#FF1E88E5</color>
+    <color name="warn">#FFE65100</color>
+    <color name="alert_bg">#FF263238</color>
+    <color name="alert_text">#FFFFFFFF</color>
+</resources>

@@ -1,0 +1,72 @@
+name: Build toilet & water data
+
+on:
+  # Weekly, Sunday 18:00 UTC (Monday 02:00 Perth)
+  schedule:
+    - cron: "0 18 * * 0"
+  # "Run workflow" button on the Actions tab
+  workflow_dispatch:
+  # Rebuild when the region list or the build script changes
+  push:
+    branches: [main, master]
+    paths:
+      - "data/**"
+      - ".github/workflows/build-data.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y osmium-tool
+          pip install "osmium>=4.0"
+
+      - name: Download and filter OpenStreetMap extracts
+        run: |
+          mkdir -p work
+          i=0
+          grep -v '^\s*#' data/regions.txt | grep -v '^\s*$' | while read -r url; do
+            i=$((i+1))
+            echo "::group::$url"
+            curl -fL --retry 3 -o work/region.osm.pbf "$url"
+            # Keep only toilets / water points (plus the nodes their outlines need).
+            osmium tags-filter work/region.osm.pbf \
+              nw/amenity=toilets,drinking_water,water_point,fountain \
+              nw/man_made=water_tap \
+              nw/fountain=drinking,bubbler,bottle_refill \
+              -o "work/filtered-$i.osm.pbf" --overwrite
+            rm work/region.osm.pbf
+            echo "::endgroup::"
+          done
+          ls -la work
+
+      - name: Build tiles
+        run: python data/build_tiles.py site work/filtered-*.osm.pbf
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

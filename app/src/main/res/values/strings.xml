@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Loo &amp; Water</string>
+    <string name="extension_name">Loo &amp; Water</string>
+
+    <string name="toilet_field">Nearest Toilet</string>
+    <string name="toilet_field_description">Distance and direction to the closest open public toilet. Tap to route there.</string>
+    <string name="water_field">Nearest Water</string>
+    <string name="water_field_description">Distance and direction to the closest public drinking fountain or tap. Tap to route there.</string>
+
+    <string name="action_toilet">Route to nearest toilet</string>
+    <string name="action_water">Route to nearest water</string>
+
+    <string name="toilet_short">WC</string>
+    <string name="water_short">Water</string>
+</resources>

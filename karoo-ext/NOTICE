@@ -1,0 +1,6 @@
+This directory contains source code from karoo-ext v1.1.9
+https://github.com/hammerheadnav/karoo-ext
+Copyright (c) SRAM LLC. Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Modification: build.gradle.kts was replaced with a trimmed build file (documentation
+and publishing tasks removed) so the library builds as a local module.

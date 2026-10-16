@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simple toilet silhouette: cistern, seat and bowl. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- cistern -->
+    <path
+        android:fillColor="#FF7B3FA0"
+        android:pathData="M5,2h6a1,1 0,0 1,1 1v7h-8v-7a1,1 0,0 1,1 -1z" />
+    <!-- seat -->
+    <path
+        android:fillColor="#FF7B3FA0"
+        android:pathData="M3,11h18a1,1 0,0 1,1 1v1h-20v-1a1,1 0,0 1,1 -1z" />
+    <!-- bowl and base -->
+    <path
+        android:fillColor="#FF7B3FA0"
+        android:pathData="M3,14h18c0,3.3 -2.4,5.4 -5.5,5.9l0.5,2.1h-8l0.5,-2.1C5.4,19.4 3,17.3 3,14z" />
+</vector>

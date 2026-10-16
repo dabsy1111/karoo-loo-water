@@ -1,0 +1,5 @@
+# OpenStreetMap extracts to include, one Geofabrik .osm.pbf URL per line.
+# Browse https://download.geofabrik.de/ for others. Lines starting with # are ignored.
+# Example for a trip:  https://download.geofabrik.de/europe/italy-latest.osm.pbf
+
+https://download.geofabrik.de/australia-oceania/australia-latest.osm.pbf
