@@ -58,6 +58,9 @@ jobs:
           done
           ls -la work
 
+      - name: Get the latest National Public Toilet Map export
+        run: python data/fetch_toiletmap.py work/toiletmap.csv
+
       - name: Build tiles
         run: python data/build_tiles.py site work
 

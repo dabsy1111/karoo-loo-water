@@ -5,6 +5,8 @@ Builds the Loo & Water data tiles from OpenStreetMap extracts.
 Input (in WORK_DIR, produced by the workflow with `osmium tags-filter`):
   filtered-*.osm.pbf    toilets and water points (plus nodes their outlines need)
   containers-*.osm.pbf  buildings and shopping-centre areas, used to drop indoor places
+  toiletmap.csv         optional: National Public Toilet Map export (data.gov.au), merged
+                        in for opening hours, closures and missing toilets (see toiletmap.py)
 
 Output: <out>/tiles/<latIdx>_<lonIdx>.json  (0.1 degree grid, ~11 km tall)
         <out>/index.json, <out>/index.html, <out>/.nojekyll
@@ -26,6 +28,8 @@ import sys
 from pathlib import Path
 
 import osmium
+
+import toiletmap
 
 GRID_PER_DEGREE = 10  # 0.1 degree tiles
 MAX_TILE_BYTES = 90_000  # Karoo's HTTP bridge caps responses at 100 KB
@@ -258,6 +262,10 @@ def write_tiles(out: Path, places: dict, stats: dict) -> dict:
         "water": water,
         "excludedIndoorTagged": stats["indoor_tagged"],
         "excludedInsideBuildings": stats["inside_building"],
+        "toiletMapMatched": stats["tm_matched"],
+        "toiletMapHoursApplied": stats["tm_hours_applied"],
+        "toiletMapRemoved": stats["tm_removed"],
+        "toiletMapAdded": stats["tm_added"],
         "largestTileBytes": largest,
         "tilesWithNamesDropped": trimmed,
     }
@@ -270,12 +278,26 @@ def main() -> None:
     work = Path(sys.argv[2])
     out.mkdir(parents=True, exist_ok=True)
 
-    stats = {"indoor_tagged": 0, "inside_building": 0}
+    stats = {
+        "indoor_tagged": 0, "inside_building": 0,
+        "tm_matched": 0, "tm_removed": 0, "tm_hours_applied": 0, "tm_added": 0,
+    }
     places: dict = {}
     for path in sorted(work.glob("filtered-*.osm.pbf")) + sorted(work.glob("filtered-*.osm")):
         before = len(places)
         collect(str(path), places, stats)
         print(f"{path.name}: {len(places) - before} places", flush=True)
+
+    tm_csv = work / "toiletmap.csv"
+    if tm_csv.exists():
+        toiletmap.merge(places, str(tm_csv), stats)
+        print(
+            f"Toilet Map: matched {stats['tm_matched']}, hours applied {stats['tm_hours_applied']}, "
+            f"removed {stats['tm_removed']}, added {stats['tm_added']}",
+            flush=True,
+        )
+    else:
+        print("No toiletmap.csv; using OpenStreetMap only", flush=True)
 
     for path in sorted(work.glob("containers-*.osm.pbf")) + sorted(work.glob("containers-*.osm")):
         before = len(places)
@@ -293,7 +315,11 @@ def main() -> None:
         f"in {index['tiles']} tiles.</p>"
         f"<p>Left out as indoors: {index['excludedIndoorTagged']} tagged indoor, "
         f"{index['excludedInsideBuildings']} inside shopping centres or buildings.</p>"
-        "<p>Data &copy; OpenStreetMap contributors, ODbL.</p>",
+        f"<p>National Public Toilet Map: {index['toiletMapHoursApplied']} opening hours applied, "
+        f"{index['toiletMapRemoved']} closed / key-only / indoor toilets removed, "
+        f"{index['toiletMapAdded']} toilets added.</p>"
+        "<p>Data &copy; OpenStreetMap contributors, ODbL. "
+        "Includes National Public Toilet Map data (Australian Government, CC BY 3.0 AU).</p>",
         encoding="utf-8",
     )
     print(json.dumps(index, indent=2))
