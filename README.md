@@ -5,7 +5,7 @@ Two data fields for Hammerhead Karoo:
 - **Nearest Toilet**: distance and direction to the closest open public toilet
 - **Nearest Water**: distance and direction to the closest public drinking fountain, bubbler, bottle refill station or drinking-water tap
 
-Tap either field and Karoo's own pin screen opens on that spot, with a **Navigate** button that routes you there using Karoo's normal turn-by-turn. The current targets are also marked on the map page.
+Tap either field and the Karoo starts turn-by-turn navigation to that spot. (It opens Karoo's pin screen and presses accept → Navigate → accept for you, then checks navigation started. If you're already following a route, it only opens the pin screen so your route isn't replaced.) The current targets are also marked on the map page.
 
 ## How it works
 
@@ -20,6 +20,7 @@ The data comes from OpenStreetMap, but the Karoo never queries OpenStreetMap dir
 - **Toilets**: `amenity=toilets`
 - **Water**: `amenity=drinking_water`, toilets/water points/fountains tagged `drinking_water=yes`, `man_made=water_tap` with `drinking_water=yes`, and `fountain=drinking/bubbler/bottle_refill`
 - Excluded: `access=private/no/customers/permit/delivery/employees/staff`, disused or abandoned
+- **Indoors excluded** (nowhere to watch the bike): anything tagged `indoor=*`, `location=indoor/inside/underground` or on a `level` other than 0; anything inside a shopping centre (`shop=mall`); and anything inside a building of 200 m² or more. Smaller buildings are usually the toilet block itself, and open structures (roofs, shelters, pavilions, kiosks) never count as indoors. The counts left out are shown on the data page. Tune `MIN_INDOOR_BUILDING_M2` in `data/build_tiles.py` if needed.
 - **Open**: the `opening_hours` tag is checked against the Karoo's clock, including `sunrise-sunset` gates. Anything closing within 10 minutes counts as closed. Places with no hours or hours too complex to read are still offered, shown as `hours ?`.
 
 "Nearest" is straight-line distance. Karoo's router takes over once you tap Navigate.

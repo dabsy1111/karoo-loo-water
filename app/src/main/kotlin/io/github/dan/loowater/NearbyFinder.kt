@@ -5,6 +5,8 @@ import io.hammerhead.karooext.KarooSystemService
 import io.hammerhead.karooext.models.InRideAlert
 import io.hammerhead.karooext.models.LaunchPinDrop
 import io.hammerhead.karooext.models.OnLocationChanged
+import io.hammerhead.karooext.models.OnNavigationState
+import io.hammerhead.karooext.models.PerformHardwareAction
 import io.hammerhead.karooext.models.Symbol
 import io.hammerhead.karooext.models.UserProfile
 import kotlinx.coroutines.CancellationException
@@ -54,6 +56,14 @@ object NearbyFinder {
     private const val TILE_MAX_AGE_MS = 24 * 60 * 60_000L
     private const val RETRY_AFTER_FAILURE_MS = 60_000L
 
+    /**
+     * Auto-navigate: after opening the pin screen, press the same buttons a rider would
+     * (bottom-right accepts the pin, top-right moves to Navigate, bottom-right starts it).
+     */
+    private const val PIN_SCREEN_OPEN_MS = 1_500L
+    private const val BETWEEN_PRESSES_MS = 350L
+    private const val CONFIRM_NAV_WITHIN_MS = 4_000L
+
     private class Tile(val places: List<Place>, val fetchedAtMs: Long)
 
     private lateinit var appContext: Context
@@ -80,6 +90,8 @@ object NearbyFinder {
 
     @Volatile private var location: LatLng? = null
     @Volatile private var heading: Double? = null
+    @Volatile private var navState: OnNavigationState.NavigationState = OnNavigationState.NavigationState.Idle
+    private val autoNavRunning = AtomicBoolean(false)
     @Volatile var imperial: Boolean = false
         private set
 
@@ -96,6 +108,7 @@ object NearbyFinder {
             heading = loc.orientation
             refresh()
         }
+        consumerIds += karoo.addConsumer<OnNavigationState> { navState = it.state }
         consumerIds += karoo.addConsumer<UserProfile> { profile ->
             imperial = profile.preferredUnit.distance == UserProfile.PreferredUnit.UnitType.IMPERIAL
         }
@@ -277,6 +290,44 @@ object NearbyFinder {
         "Nothing open within ${Geo.formatDistance(state.radiusM.toDouble(), imperial)}"
 
     private fun navigateTo(category: Category, place: Place) {
+        // Already following a route (or another destination): only open the pin, so a
+        // toilet stop never silently replaces the planned ride. You choose on the pin screen.
+        if (autoNavRunning.get()) return // a second tap mid-sequence would scramble the presses
+        val idle = navState is OnNavigationState.NavigationState.Idle
+        showPin(category, place)
+        if (idle && autoNavRunning.compareAndSet(false, true)) {
+            scope.launch {
+                try {
+                    autoNavigate(category, place)
+                } finally {
+                    autoNavRunning.set(false)
+                }
+            }
+        }
+    }
+
+    private suspend fun autoNavigate(category: Category, place: Place) {
+        delay(PIN_SCREEN_OPEN_MS)
+        karoo.dispatch(PerformHardwareAction.BottomRightPress) // accept the pin
+        delay(BETWEEN_PRESSES_MS)
+        karoo.dispatch(PerformHardwareAction.TopRightPress) // move to Navigate
+        delay(BETWEEN_PRESSES_MS)
+        karoo.dispatch(PerformHardwareAction.BottomRightPress) // start navigation
+
+        // Check it worked; if not, tell the rider to finish it by hand.
+        val deadline = System.currentTimeMillis() + CONFIRM_NAV_WITHIN_MS
+        while (System.currentTimeMillis() < deadline) {
+            if (navState is OnNavigationState.NavigationState.NavigatingToDestination) {
+                Timber.i("Auto-navigation to ${place.id} started")
+                return
+            }
+            delay(250)
+        }
+        Timber.w("Auto-navigation didn't start; nav state is $navState")
+        alert(category, "Couldn't start navigation", "Tap the field to try again")
+    }
+
+    private fun showPin(category: Category, place: Place) {
         val label = appContext.getString(category.shortLabelRes)
         karoo.dispatch(
             LaunchPinDrop(

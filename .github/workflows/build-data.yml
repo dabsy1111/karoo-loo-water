@@ -25,7 +25,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -49,13 +49,17 @@ jobs:
               nw/man_made=water_tap \
               nw/fountain=drinking,bubbler,bottle_refill \
               -o "work/filtered-$i.osm.pbf" --overwrite
+            # Buildings and shopping centres, used to drop toilets / taps that are indoors.
+            osmium tags-filter work/region.osm.pbf \
+              a/building a/shop=mall \
+              -o "work/containers-$i.osm.pbf" --overwrite
             rm work/region.osm.pbf
             echo "::endgroup::"
           done
           ls -la work
 
       - name: Build tiles
-        run: python data/build_tiles.py site work/filtered-*.osm.pbf
+        run: python data/build_tiles.py site work
 
       - uses: actions/upload-pages-artifact@v3
         with:

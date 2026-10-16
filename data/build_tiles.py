@@ -2,7 +2,10 @@
 """
 Builds the Loo & Water data tiles from OpenStreetMap extracts.
 
-Input:  one or more .osm.pbf (or .osm) files, already narrowed with `osmium tags-filter`
+Input (in WORK_DIR, produced by the workflow with `osmium tags-filter`):
+  filtered-*.osm.pbf    toilets and water points (plus nodes their outlines need)
+  containers-*.osm.pbf  buildings and shopping-centre areas, used to drop indoor places
+
 Output: <out>/tiles/<latIdx>_<lonIdx>.json  (0.1 degree grid, ~11 km tall)
         <out>/index.json, <out>/index.html, <out>/.nojekyll
 
@@ -13,7 +16,7 @@ Each tile:  {"v": 1, "p": [[lat, lon, "tw", name, opening_hours, fee], ...]}
 
 The tile key MUST match the extension: floor(lat * 10) and floor(lon * 10).
 
-Usage: python build_tiles.py OUT_DIR file1.osm.pbf [file2.osm.pbf ...]
+Usage: python build_tiles.py OUT_DIR WORK_DIR
 """
 import datetime
 import json
@@ -29,6 +32,24 @@ MAX_TILE_BYTES = 90_000  # Karoo's HTTP bridge caps responses at 100 KB
 
 BLOCKED_ACCESS = re.compile(r"^(private|no|customers|permit|delivery|employees|staff)$")
 DRINKING_FOUNTAINS = {"drinking", "bubbler", "bottle_refill"}
+
+# ---------------------------------------------------------------- indoor rules
+# Places you'd have to walk into a building for (no way to watch the bike) are dropped.
+#
+# 1. Tagged as indoor on the place itself.
+INDOOR_TAG_VALUES = {"yes", "room", "area", "corridor", "level"}
+INDOOR_LOCATIONS = {"indoor", "inside", "underground"}
+# 2. Inside a shopping-centre area (shop=mall), whatever its size.
+# 3. Inside a building outline of at least this size. Smaller buildings are usually
+#    the toilet block or kiosk itself, which you reach from outside.
+MIN_INDOOR_BUILDING_M2 = 200
+#    Building types that are open or are the facility itself, never "indoor":
+OPEN_BUILDING_TYPES = {
+    "toilets", "roof", "shelter", "pavilion", "kiosk", "hut", "shed", "service",
+    "carport", "bandstand", "ruins", "no",
+}
+# Point lookup grid for the containment test (~200 m cells).
+CELL_DEG = 0.002
 
 
 def categories(tags: dict) -> str:
@@ -56,11 +77,20 @@ def categories(tags: dict) -> str:
     return codes
 
 
+def indoor_by_tags(tags: dict) -> bool:
+    if tags.get("indoor") in INDOOR_TAG_VALUES:
+        return True
+    if tags.get("location") in INDOOR_LOCATIONS:
+        return True
+    level = tags.get("level", "").strip()
+    return bool(level) and level != "0"
+
+
 def tile_key(lat: float, lon: float) -> str:
     return f"{math.floor(lat * GRID_PER_DEGREE)}_{math.floor(lon * GRID_PER_DEGREE)}"
 
 
-def collect(path: str, places: dict) -> None:
+def collect(path: str, places: dict, stats: dict) -> None:
     """Adds matching nodes and ways (as their centre) from one OSM file into `places`."""
     for obj in osmium.FileProcessor(path).with_locations():
         if obj.is_relation():
@@ -70,6 +100,9 @@ def collect(path: str, places: dict) -> None:
             continue
         codes = categories(tags)
         if not codes:
+            continue
+        if indoor_by_tags(tags):
+            stats["indoor_tagged"] += 1
             continue
 
         if obj.is_node():
@@ -98,7 +131,101 @@ def collect(path: str, places: dict) -> None:
         ]
 
 
-def write_tiles(out: Path, places: dict) -> dict:
+# ---------------------------------------------------------------- containment
+
+def ring_coords(ring) -> list:
+    return [(n.lon, n.lat) for n in ring if n.location.valid()]
+
+
+def point_in_ring(x: float, y: float, ring: list) -> bool:
+    inside = False
+    j = len(ring) - 1
+    for i in range(len(ring)):
+        xi, yi = ring[i]
+        xj, yj = ring[j]
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def ring_area_m2(ring: list) -> float:
+    if len(ring) < 3:
+        return 0.0
+    lat0 = math.radians(sum(p[1] for p in ring) / len(ring))
+    kx = 111_320.0 * math.cos(lat0)
+    ky = 110_540.0
+    s = 0.0
+    for i in range(len(ring)):
+        x1, y1 = ring[i - 1]
+        x2, y2 = ring[i]
+        s += (x1 * kx) * (y2 * ky) - (x2 * kx) * (y1 * ky)
+    return abs(s) / 2
+
+
+def is_indoor_container(tags: dict, area_m2: float) -> bool:
+    if tags.get("shop") == "mall":
+        return True
+    building = tags.get("building")
+    if not building or building in OPEN_BUILDING_TYPES:
+        return False
+    if tags.get("amenity") == "toilets":
+        return False  # the toilet block itself
+    return area_m2 >= MIN_INDOOR_BUILDING_M2
+
+
+def drop_indoor(path: str, places: dict, stats: dict) -> None:
+    """Removes places that sit inside a shopping centre or a sizeable building."""
+    grid: dict = {}
+    for key, row in places.items():
+        cell = (math.floor(row[1] / CELL_DEG), math.floor(row[0] / CELL_DEG))
+        grid.setdefault(cell, []).append(key)
+    if not grid:
+        return
+
+    area_filter = osmium.filter.EntityFilter(osmium.osm.AREA)
+    for area in osmium.FileProcessor(path).with_areas().with_filter(area_filter):
+        tags = area.tags
+        if "building" not in tags and tags.get("shop") != "mall":
+            continue
+        for outer in area.outer_rings():
+            ring = ring_coords(outer)
+            if len(ring) < 3:
+                continue
+            xs = [p[0] for p in ring]
+            ys = [p[1] for p in ring]
+            x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+            if x1 - x0 > 0.05 or y1 - y0 > 0.05:
+                continue  # nothing indoor is 5 km across; skip odd giant outlines
+            candidates = [
+                k
+                for cx in range(math.floor(x0 / CELL_DEG), math.floor(x1 / CELL_DEG) + 1)
+                for cy in range(math.floor(y0 / CELL_DEG), math.floor(y1 / CELL_DEG) + 1)
+                for k in grid.get((cx, cy), ())
+                if k in places
+            ]
+            if not candidates:
+                continue
+
+            own_way = f"w{area.orig_id()}" if area.from_way() else None
+            tag_dict = {t.k: t.v for t in tags}
+            if not is_indoor_container(tag_dict, ring_area_m2(ring)):
+                continue
+            holes = [ring_coords(inner) for inner in area.inner_rings(outer)]
+            for k in candidates:
+                if k == own_way:
+                    continue
+                lat, lon = places[k][0], places[k][1]
+                if not (x0 <= lon <= x1 and y0 <= lat <= y1):
+                    continue
+                if point_in_ring(lon, lat, ring) and not any(point_in_ring(lon, lat, h) for h in holes):
+                    del places[k]
+                    stats["inside_building"] += 1
+
+
+# ---------------------------------------------------------------- output
+
+def write_tiles(out: Path, places: dict, stats: dict) -> dict:
     tiles: dict[str, list] = {}
     for row in places.values():
         tiles.setdefault(tile_key(row[0], row[1]), []).append(row)
@@ -129,24 +256,33 @@ def write_tiles(out: Path, places: dict) -> dict:
         "tiles": len(tiles),
         "toilets": toilets,
         "water": water,
+        "excludedIndoorTagged": stats["indoor_tagged"],
+        "excludedInsideBuildings": stats["inside_building"],
         "largestTileBytes": largest,
         "tilesWithNamesDropped": trimmed,
     }
 
 
 def main() -> None:
-    if len(sys.argv) < 3:
+    if len(sys.argv) != 3:
         sys.exit(__doc__)
     out = Path(sys.argv[1])
+    work = Path(sys.argv[2])
     out.mkdir(parents=True, exist_ok=True)
 
+    stats = {"indoor_tagged": 0, "inside_building": 0}
     places: dict = {}
-    for path in sys.argv[2:]:
+    for path in sorted(work.glob("filtered-*.osm.pbf")) + sorted(work.glob("filtered-*.osm")):
         before = len(places)
-        collect(path, places)
-        print(f"{path}: {len(places) - before} places")
+        collect(str(path), places, stats)
+        print(f"{path.name}: {len(places) - before} places", flush=True)
 
-    index = write_tiles(out, places)
+    for path in sorted(work.glob("containers-*.osm.pbf")) + sorted(work.glob("containers-*.osm")):
+        before = len(places)
+        drop_indoor(str(path), places, stats)
+        print(f"{path.name}: dropped {before - len(places)} indoor places", flush=True)
+
+    index = write_tiles(out, places, stats)
     (out / "index.json").write_text(json.dumps(index, indent=2), encoding="utf-8")
     (out / ".nojekyll").write_text("", encoding="utf-8")
     (out / "index.html").write_text(
@@ -155,6 +291,8 @@ def main() -> None:
         "<h1>Loo &amp; Water data</h1>"
         f"<p>Built {index['built']}: {index['toilets']} toilets, {index['water']} water points "
         f"in {index['tiles']} tiles.</p>"
+        f"<p>Left out as indoors: {index['excludedIndoorTagged']} tagged indoor, "
+        f"{index['excludedInsideBuildings']} inside shopping centres or buildings.</p>"
         "<p>Data &copy; OpenStreetMap contributors, ODbL.</p>",
         encoding="utf-8",
     )
