@@ -3,6 +3,8 @@
     <string name="app_name">Loo &amp; Water</string>
     <string name="extension_name">Loo &amp; Water</string>
 
+    <string name="both_field">Toilet &amp; Water</string>
+    <string name="both_field_description">Nearest open toilet and nearest drinking water side by side. Best as a full-width field. Tap either half to navigate there.</string>
     <string name="toilet_field">Nearest Toilet</string>
     <string name="toilet_field_description">Distance and direction to the closest open public toilet. Tap to route there.</string>
     <string name="water_field">Nearest Water</string>
@@ -10,6 +12,11 @@
 
     <string name="action_toilet">Route to nearest toilet</string>
     <string name="action_water">Route to nearest water</string>
+
+    <string name="settings_data">Data</string>
+    <string name="settings_reload">Reload data now</string>
+    <string name="settings_types">Toilet types</string>
+    <string name="settings_types_hint">Switch off places you don\'t want to be sent to. Shopping centres, food outlets and airports start off because you\'d have to leave the bike. Drinking fountains and taps are always shown.</string>
 
     <string name="toilet_short">WC</string>
     <string name="water_short">Water</string>

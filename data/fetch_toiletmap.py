@@ -10,6 +10,7 @@ Usage: python fetch_toiletmap.py OUT_PATH
 """
 import csv
 import io
+import re
 import json
 import shutil
 import sys
@@ -36,6 +37,16 @@ def looks_valid(data: bytes) -> bool:
     return sum(1 for _ in reader) > 10_000
 
 
+def export_date(url: str) -> str:
+    """'toiletmapexport_261001_074429.csv' -> 'export of 2026-10-01'."""
+    m = re.search(r"toiletmapexport_(\d{2})(\d{2})(\d{2})_", url)
+    return f"export of 20{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else "latest export"
+
+
+def note(out: Path, text: str) -> None:
+    (out.parent / "toiletmap.source.txt").write_text(text, encoding="utf-8")
+
+
 def main() -> None:
     out = Path(sys.argv[1])
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -50,6 +61,7 @@ def main() -> None:
             data = get(r["url"])
             if looks_valid(data):
                 out.write_bytes(data)
+                note(out, f"downloaded {export_date(r['url'])}")
                 print(f"Downloaded {r['url']} ({len(data) // 1024} KB)")
                 return
         raise RuntimeError("no valid CSV among the dataset's resources")
@@ -57,6 +69,7 @@ def main() -> None:
         print(f"::warning::Couldn't fetch the latest Toilet Map export ({e}); using the committed copy")
         if FALLBACK.exists():
             shutil.copy(FALLBACK, out)
+            note(out, "committed copy (data/toiletmap.csv)")
         else:
             print("::warning::No committed data/toiletmap.csv either; building from OpenStreetMap only")
 

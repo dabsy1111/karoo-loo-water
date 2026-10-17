@@ -20,7 +20,8 @@ class LooWaterExtension : KarooExtension(EXTENSION_ID, "1.0") {
     private val karooSystem by lazy { KarooSystemService(this) }
 
     override val types by lazy {
-        Category.entries.map { FinderDataType(extension, it) }
+        listOf<io.hammerhead.karooext.extension.DataTypeImpl>(CombinedDataType(extension)) +
+            Category.entries.map { FinderDataType(extension, it) }
     }
 
     override fun onCreate() {

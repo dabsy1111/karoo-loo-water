@@ -12,8 +12,8 @@ android {
         applicationId = "io.github.dan.loowater"
         minSdk = 23
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 4
+        versionName = "1.3"
 
         // Where the weekly-built toilet & water tiles live. Set in gradle.properties.
         val dataUrl = (project.findProperty("loowater.dataUrl") as String?) ?: ""

@@ -21,10 +21,23 @@ The data comes from OpenStreetMap, but the Karoo never queries OpenStreetMap dir
 - **Water**: `amenity=drinking_water`, toilets/water points/fountains tagged `drinking_water=yes`, `man_made=water_tap` with `drinking_water=yes`, and `fountain=drinking/bubbler/bottle_refill`
 - Excluded: `access=private/no/customers/permit/delivery/employees/staff`, disused or abandoned
 - **Indoors excluded** (nowhere to watch the bike): anything tagged `indoor=*`, `location=indoor/inside/underground` or on a `level` other than 0; anything inside a shopping centre (`shop=mall`); and anything inside a building of 200 m² or more. Smaller buildings are usually the toilet block itself, and open structures (roofs, shelters, pavilions, kiosks) never count as indoors. The counts left out are shown on the data page. Tune `MIN_INDOOR_BUILDING_M2` in `data/build_tiles.py` if needed.
-- **Australian Toilet Map**: each week the build also downloads the [National Public Toilet Map](https://toiletmap.gov.au/) export from data.gov.au (falling back to `data/toiletmap.csv` if that fails). Matching toilets (within 50 m) take its opening hours; OSM toilets with no hours borrow them from a Toilet Map entry within 150 m. Entries marked currently closed, key/MLAK only, or in a shopping centre, food outlet or airport are removed. Toilet Map entries with no OSM toilet within 150 m are added. "Daylight hours" becomes sunrise–sunset; "Variable" and "Venue" hours stay unknown.
+- **Australian Toilet Map**: each week the build also downloads the [National Public Toilet Map](https://toiletmap.gov.au/) export from data.gov.au (falling back to `data/toiletmap.csv` if that fails). Matching toilets (within 50 m) take its opening hours; OSM toilets with no hours borrow them from a Toilet Map entry within 150 m. Entries marked currently closed or key/MLAK only are removed. Each toilet keeps its Toilet Map facility type for the settings screen; shopping centre, food outlet and airport toilets skip the building rule so their switches work. Toilet Map entries with no OSM toilet within 150 m are added. "Daylight hours" becomes sunrise–sunset; "Variable" and "Venue" hours stay unknown.
 - **Open**: the `opening_hours` tag is checked against the Karoo's clock, including `sunrise-sunset` gates. Anything closing within 10 minutes counts as closed. Places with no hours or hours too complex to read are still offered, shown as `hours ?`.
 
 "Nearest" is straight-line distance. Karoo's router takes over once you tap Navigate.
+
+## Fields
+
+- **Toilet & Water**: both in one field, toilet on the left and water on the right (stacked if the field is narrower than full width). Made for a full-width, quarter-height slot. Tap either half to navigate to that one.
+- **Nearest Toilet** and **Nearest Water**: one each, for smaller slots.
+
+## Settings screen
+
+Open **Loo & Water** from the Karoo's Extensions page (or app list) to:
+
+- see when the data was last built on GitHub, when it was last downloaded to the Karoo, and which Toilet Map export it used
+- **Reload data now** (fetches fresh tiles next time the fields are on screen)
+- switch Toilet Map facility types on or off (parks, beaches, service stations, train stations and so on). Shopping centres, food outlets and airports are off by default. "Not in the Toilet Map" covers toilets only found in OpenStreetMap. Drinking fountains and taps are always shown; water at a toilet follows that toilet's type.
 
 ## What the field shows
 

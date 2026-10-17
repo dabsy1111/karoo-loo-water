@@ -14,6 +14,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.cos
@@ -28,7 +29,12 @@ data class Place(
     val openingHours: String?,
     val fee: Boolean,
     val categories: Set<Category>,
+    /** Toilet Map facility type code (see [FacilityType]), "" if not in the Toilet Map. */
+    val type: String = "",
 )
+
+/** Summary of the published data (index.json). */
+data class DataIndex(val builtEpoch: Long, val toiletMapSource: String?)
 
 /** [serverError] = we reached the internet but got a bad reply; false = no connection. */
 class FetchException(message: String, val serverError: Boolean = false) : Exception(message)
@@ -57,6 +63,26 @@ class TileClient(private val karoo: KarooSystemService) {
                 throw FetchException("Bad tile $key: ${e.message}", serverError = true)
             }
         }
+    }
+
+    /** When the data was last built on GitHub, and which Toilet Map copy it used. */
+    suspend fun fetchIndex(): DataIndex {
+        val (status, body) = get("${baseUrl()}index.json")
+        if (status !in 200..299 || body == null) throw FetchException("HTTP $status", serverError = true)
+        val obj = json.parseToJsonElement(body.toString(Charsets.UTF_8)).jsonObject
+        val epoch = obj["builtEpoch"]?.jsonPrimitive?.longOrNull
+            ?: obj["built"]?.jsonPrimitive?.contentOrNull?.let(::parseIsoUtc)
+            ?: throw FetchException("No build time in index.json", serverError = true)
+        return DataIndex(epoch, obj["toiletMapSource"]?.jsonPrimitive?.contentOrNull)
+    }
+
+    /** "2026-10-16T12:11:43+00:00" -> epoch seconds (the build always writes UTC). */
+    private fun parseIsoUtc(text: String): Long? = try {
+        java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+            .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+            .parse(text.take(19))?.time?.div(1000)
+    } catch (e: java.text.ParseException) {
+        null
     }
 
     private suspend fun get(url: String): Pair<Int, ByteArray?> = withTimeout(TIMEOUT_MS) {
@@ -110,6 +136,7 @@ class TileClient(private val karoo: KarooSystemService) {
                 openingHours = text(4),
                 fee = (row.getOrNull(5) as? JsonPrimitive)?.intOrNull == 1,
                 categories = cats,
+                type = text(6).orEmpty(),
             )
         }
     }

@@ -99,6 +99,7 @@ object NearbyFinder {
 
     fun start(context: Context, karooSystem: KarooSystemService) {
         appContext = context.applicationContext
+        Settings.init(appContext)
         karoo = karooSystem
         client = TileClient(karooSystem)
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -159,6 +160,22 @@ object NearbyFinder {
         }
     }
 
+    /** A type switch changed on the settings screen: re-pick straight away. */
+    fun onSettingsChanged() {
+        Category.entries.forEach { recompute(it) }
+    }
+
+    /** "Reload data" on the settings screen: drop cached tiles and fetch them again. */
+    fun reloadData() {
+        tiles.clear()
+        lastFailureMs = 0
+        lastSuccessMs = 0
+        if (::karoo.isInitialized) {
+            Category.entries.forEach { recompute(it) }
+            fetchMissing(force = true)
+        }
+    }
+
     // ------------------------------------------------------------------ internals
 
     private fun refresh() {
@@ -194,7 +211,7 @@ object NearbyFinder {
         return tiles.values
             .asSequence()
             .flatMap { it.places.asSequence() }
-            .filter { category in it.categories }
+            .filter { category in it.categories && Settings.allows(it, category) }
             .map { place -> place to Geo.distanceM(here, place.location) }
             .sortedBy { it.second }
             // Hours are only evaluated until the first place that isn't confidently closed.
@@ -251,6 +268,7 @@ object NearbyFinder {
 
         if (failure == null) {
             lastSuccessMs = System.currentTimeMillis()
+            Settings.lastDownloadMs = lastSuccessMs
             offlineAlertShown = false // connection is back; warn again next time it drops
         } else {
             Timber.w(failure, "Tile download failed")

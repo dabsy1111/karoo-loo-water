@@ -20,6 +20,19 @@
                 android:resource="@xml/extension_info" />
         </service>
 
+        <!-- Settings screen: opens from the Karoo's Extensions page (and the app list). -->
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:launchMode="singleTop"
+            android:theme="@style/SettingsTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <!-- Receives taps from the data fields. Not exported: only our own PendingIntents reach it. -->
         <receiver
             android:name=".TapReceiver"

@@ -7,6 +7,12 @@
     mapLayer="true"
     fitFile="false">
     <DataType
+        typeId="nearest-both"
+        displayName="@string/both_field"
+        description="@string/both_field_description"
+        graphical="true"
+        icon="@drawable/ic_extension" />
+    <DataType
         typeId="nearest-toilet"
         displayName="@string/toilet_field"
         description="@string/toilet_field_description"

@@ -11,10 +11,11 @@ Input (in WORK_DIR, produced by the workflow with `osmium tags-filter`):
 Output: <out>/tiles/<latIdx>_<lonIdx>.json  (0.1 degree grid, ~11 km tall)
         <out>/index.json, <out>/index.html, <out>/.nojekyll
 
-Each tile:  {"v": 1, "p": [[lat, lon, "tw", name, opening_hours, fee], ...]}
+Each tile:  {"v": 1, "p": [[lat, lon, "tw", name, opening_hours, fee, type], ...]}
   - the 3rd field holds category codes: "t" toilet, "w" drinking water
     (a toilet block tagged drinking_water=yes is both: "tw")
   - name / opening_hours are null when untagged; fee is 1 or 0
+  - type is the Toilet Map facility type code (see toiletmap.TYPE_CODES), "" if unlisted
 
 The tile key MUST match the extension: floor(lat * 10) and floor(lon * 10).
 
@@ -52,6 +53,9 @@ OPEN_BUILDING_TYPES = {
     "toilets", "roof", "shelter", "pavilion", "kiosk", "hut", "shed", "service",
     "carport", "bandstand", "ruins", "no",
 }
+# Toilet Map types the rider can switch on in the app even though they're indoors
+# (off by default). These skip the building test so the switch actually works.
+SWITCHABLE_INDOOR_TYPES = {"shopping", "food", "airport"}
 # Point lookup grid for the containment test (~200 m cells).
 CELL_DEG = 0.002
 
@@ -132,6 +136,7 @@ def collect(path: str, places: dict, stats: dict) -> None:
             tags.get("name"),
             tags.get("opening_hours"),
             1 if fee and fee != "no" else 0,
+            "",
         ]
 
 
@@ -182,6 +187,8 @@ def drop_indoor(path: str, places: dict, stats: dict) -> None:
     """Removes places that sit inside a shopping centre or a sizeable building."""
     grid: dict = {}
     for key, row in places.items():
+        if row[6] in SWITCHABLE_INDOOR_TYPES:
+            continue
         cell = (math.floor(row[1] / CELL_DEG), math.floor(row[0] / CELL_DEG))
         grid.setdefault(cell, []).append(key)
     if not grid:
@@ -243,7 +250,7 @@ def write_tiles(out: Path, places: dict, stats: dict) -> dict:
         if len(text.encode()) > MAX_TILE_BYTES:
             # Very dense tile: drop names to fit under Karoo's limit.
             text = json.dumps(
-                {"v": 1, "p": [[r[0], r[1], r[2], None, r[4], r[5]] for r in rows]},
+                {"v": 1, "p": [[r[0], r[1], r[2], None, r[4], r[5], r[6]] for r in rows]},
                 separators=(",", ":"),
                 ensure_ascii=False,
             )
@@ -253,9 +260,17 @@ def write_tiles(out: Path, places: dict, stats: dict) -> dict:
     toilets = sum(1 for r in places.values() if "t" in r[2])
     water = sum(1 for r in places.values() if "w" in r[2])
     largest = max((len((tile_dir / f"{k}.json").read_bytes()) for k in tiles), default=0)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    type_counts: dict = {}
+    for r in places.values():
+        if "t" in r[2]:
+            type_counts[r[6] or "unlisted"] = type_counts.get(r[6] or "unlisted", 0) + 1
     return {
         "v": 1,
-        "built": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+        "built": now.isoformat(timespec="seconds"),
+        "builtEpoch": int(now.timestamp()),
+        "toiletMapSource": stats.get("tm_source", "not used"),
+        "types": dict(sorted(type_counts.items())),
         "gridPerDegree": GRID_PER_DEGREE,
         "tiles": len(tiles),
         "toilets": toilets,
@@ -289,6 +304,9 @@ def main() -> None:
         print(f"{path.name}: {len(places) - before} places", flush=True)
 
     tm_csv = work / "toiletmap.csv"
+    tm_note = work / "toiletmap.source.txt"
+    if tm_note.exists():
+        stats["tm_source"] = tm_note.read_text(encoding="utf-8").strip()
     if tm_csv.exists():
         toiletmap.merge(places, str(tm_csv), stats)
         print(
@@ -317,7 +335,7 @@ def main() -> None:
         f"{index['excludedInsideBuildings']} inside shopping centres or buildings.</p>"
         f"<p>National Public Toilet Map: {index['toiletMapHoursApplied']} opening hours applied, "
         f"{index['toiletMapRemoved']} closed / key-only / indoor toilets removed, "
-        f"{index['toiletMapAdded']} toilets added.</p>"
+        f"{index['toiletMapAdded']} toilets added. Source: {index['toiletMapSource']}.</p>"
         "<p>Data &copy; OpenStreetMap contributors, ODbL. "
         "Includes National Public Toilet Map data (Australian Government, CC BY 3.0 AU).</p>",
         encoding="utf-8",

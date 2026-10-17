@@ -4,9 +4,9 @@ into the OpenStreetMap places.
 
 For each OSM toilet, the nearest Toilet Map facility within MATCH_RADIUS_M is taken
 as the same toilet. The Toilet Map is maintained by councils and is usually better on
-opening hours, so its hours replace OSM's. Facilities it marks closed, key-only or
-indoors (shopping centres, food outlets, airports) are removed. Toilet Map facilities
-with no OSM match are added as new toilets.
+opening hours, so its hours replace OSM's, and its facility type is recorded so the
+rider can switch types on and off on the Karoo. Facilities marked closed or key-only
+are removed. Toilet Map facilities with no OSM match are added as new toilets.
 
 Hours are converted to OSM `opening_hours` syntax so the Karoo app evaluates them
 the same way as OSM data:
@@ -21,11 +21,32 @@ import math
 import re
 
 MATCH_RADIUS_M = 50
+# Short codes for the Toilet Map's FacilityType, stored in every tile row so the Karoo
+# app can let the rider switch types on and off. Must match FacilityType.kt in the app.
+TYPE_CODES = {
+    "park or reserve": "park",
+    "beach": "beach",
+    "sporting facility": "sport",
+    "swimming pool": "pool",
+    "community building": "community",
+    "car park": "carpark",
+    "rest area": "rest",
+    "service station": "servo",
+    "train station": "train",
+    "bus station": "bus",
+    "jetty": "jetty",
+    "camping ground": "camp",
+    "caravan park": "caravan",
+    "cemetery": "cemetery",
+    "shopping centre": "shopping",
+    "food outlet": "food",
+    "airport": "airport",
+    "other": "other",
+}
 # The two datasets often place the same toilet 50-150 m apart. Within this wider radius
 # an OSM toilet with no hours borrows the Toilet Map's, and the Toilet Map facility is
 # not added again as a duplicate.
 NEARBY_RADIUS_M = 150
-EXCLUDED_TYPES = {"shopping centre", "food outlet", "airport"}
 GRID_DEG = 0.001  # ~100 m cells for matching
 
 DAYS = {"mon": "Mo", "tue": "Tu", "wed": "We", "thu": "Th", "fri": "Fr", "sat": "Sa", "sun": "Su"}
@@ -157,9 +178,10 @@ def load(path: str) -> list[dict]:
                 "name": (row.get("Name") or "").strip() or None,
                 "status": status,
                 "hours": hours,
+                "type": TYPE_CODES.get(ftype, "other"),
+                # Never useful to a passing cyclist, whatever the rider's type settings.
                 "excluded": (
                     status == "closed"
-                    or ftype in EXCLUDED_TYPES
                     or _truthy(row.get("KeyRequired"))
                     or _truthy(row.get("MLAK24"))
                 ),
@@ -225,6 +247,7 @@ def merge(places: dict, path: str, stats: dict) -> None:
             del places[key]
             stats["tm_removed"] += 1
             continue
+        row[6] = f["type"]
         if f["hours"]:
             row[4] = f["hours"]
             stats["tm_hours_applied"] += 1
@@ -248,5 +271,6 @@ def merge(places: dict, path: str, stats: dict) -> None:
             f["name"],
             f["hours"],
             1 if f["fee"] else 0,
+            f["type"],
         ]
         stats["tm_added"] += 1

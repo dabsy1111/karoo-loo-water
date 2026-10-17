@@ -1,8 +1,6 @@
 package io.github.dan.loowater
 
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -49,7 +47,7 @@ class FinderDataType(
     override fun startView(context: Context, config: ViewConfig, emitter: ViewEmitter) {
         if (config.preview) {
             // Page editor: show a static sample so it's recognisable.
-            emitter.updateView(render(context, config, Display(sampleDistance(), "NE · open", false)))
+            emitter.updateView(render(context, config, FieldText.Display(sampleDistance(), "NE · open", false)))
             return
         }
         NearbyFinder.viewAttached(category)
@@ -68,29 +66,14 @@ class FinderDataType(
         }
     }
 
-    private data class Display(val primary: String, val secondary: String, val warn: Boolean)
-
     private fun sampleDistance() = Geo.formatDistance(850.0, NearbyFinder.imperial)
 
-    private fun display(state: FinderState): Display = when (state) {
-        is FinderState.Found -> {
-            val direction = state.heading?.let { Geo.relativeArrow(state.bearingDeg, it) }
-                ?: Geo.compassPoint(state.bearingDeg)
-            val hours = when (state.hours) {
-                OpeningHours.Status.OPEN -> "open"
-                OpeningHours.Status.UNKNOWN -> "hours ?"
-                OpeningHours.Status.CLOSED -> "closed" // filtered out upstream; kept for completeness
-            }
-            val fee = if (state.place.fee) " · fee" else ""
-            Display(Geo.formatDistance(state.distanceM, NearbyFinder.imperial), "$direction · $hours$fee", false)
-        }
-        FinderState.WaitingForGps -> Display("--", "no GPS", false)
-        FinderState.Searching -> Display("…", "searching", false)
-        is FinderState.NoneFound -> Display("none", "within ${Geo.formatDistance(state.radiusM.toDouble(), NearbyFinder.imperial)}", true)
-        is FinderState.Failed -> Display("--", "${state.reason} · tap", true)
+    private fun display(state: FinderState): FieldText.Display = FieldText.of(state).let {
+        // One-field layout: direction goes on the second line.
+        FieldText.Display(it.primary, listOf(it.arrow, it.secondary).filter(String::isNotEmpty).joinToString(" · "), it.warn)
     }
 
-    private fun render(context: Context, config: ViewConfig, d: Display): RemoteViews {
+    private fun render(context: Context, config: ViewConfig, d: FieldText.Display): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.view_finder)
         views.setImageViewResource(R.id.icon, category.iconRes)
         views.setTextViewText(R.id.primary, d.primary)
@@ -116,19 +99,7 @@ class FinderDataType(
         views.setInt(R.id.root, "setGravity", gravity or Gravity.CENTER_VERTICAL)
         views.setInt(R.id.text_block, "setGravity", gravity)
 
-        views.setOnClickPendingIntent(R.id.root, tapIntent(context))
+        views.setOnClickPendingIntent(R.id.root, TapReceiver.pendingIntent(context, category))
         return views
-    }
-
-    private fun tapIntent(context: Context): PendingIntent {
-        val intent = Intent(context, TapReceiver::class.java)
-            .setAction(TapReceiver.ACTION_TAP)
-            .putExtra(TapReceiver.EXTRA_CATEGORY, category.name)
-        return PendingIntent.getBroadcast(
-            context,
-            category.ordinal,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
     }
 }

@@ -1,5 +1,6 @@
 package io.github.dan.loowater
 
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -19,5 +20,18 @@ class TapReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_TAP = "io.github.dan.loowater.TAP"
         const val EXTRA_CATEGORY = "category"
+
+        /** What a field (or half of one) fires when tapped: route to the nearest [category]. */
+        fun pendingIntent(context: Context, category: Category): PendingIntent {
+            val intent = Intent(context, TapReceiver::class.java)
+                .setAction(ACTION_TAP)
+                .putExtra(EXTRA_CATEGORY, category.name)
+            return PendingIntent.getBroadcast(
+                context,
+                category.ordinal,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        }
     }
 }
