@@ -8,3 +8,6 @@ captures/
 .kotlin/
 /site/
 /work/
+
+# Shared signing key: kept out of the public repo
+/keystore/

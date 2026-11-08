@@ -24,10 +24,29 @@ android {
         buildConfig = true
     }
 
+    // One shared key in the repo, so an APK built on any computer (or by Claude) can
+    // update the copy already on the Karoo. Android refuses updates signed differently.
+    // The key itself is not in the repo (it's public); without it, builds fall back to
+    // this computer's debug key and can't update a copy signed with the shared key.
+    val sharedKey = rootProject.file("keystore/loowater.jks")
+    signingConfigs {
+        if (sharedKey.exists()) {
+            create("shared") {
+                storeFile = sharedKey
+                storePassword = "loowater"
+                keyAlias = "loowater"
+                keyPassword = "loowater"
+            }
+        }
+    }
+
     buildTypes {
+        val signing = signingConfigs.findByName("shared") ?: signingConfigs.getByName("debug")
+        debug {
+            signingConfig = signing
+        }
         release {
-            // Signed with the debug key so a release APK can be sideloaded without extra setup.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signing
             isMinifyEnabled = false
         }
     }
