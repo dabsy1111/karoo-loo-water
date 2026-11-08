@@ -93,6 +93,14 @@ After this it rebuilds every Sunday by itself.
 
 Add a Geofabrik `.osm.pbf` URL to `data/regions.txt` (browse [download.geofabrik.de](https://download.geofabrik.de/)), commit, and push. The workflow reruns automatically. Smaller extracts build faster; prefer a country over a whole continent.
 
+## Releases (signed APK)
+
+Every push that changes the app makes GitHub build a signed APK and publish it as a release. Install link (works with the Hammerhead companion app):
+
+https://github.com/dabsy1111/karoo-loo-water/releases/latest/download/LooWater.apk
+
+The signing key lives only in the repository secret `LOOWATER_KEYSTORE` (base64 of `keystore/loowater.jks`, git-ignored). Every release is signed with it, so each one installs over the last. Builds made without the key use the local debug key and can't update a release install. The app also points the Karoo at the latest release's `manifest.json` so it can offer updates.
+
 ## Building the APK
 
 1. Open the folder in Android Studio and let Gradle sync. If asked about the Gradle JVM, choose **JVM 21**.

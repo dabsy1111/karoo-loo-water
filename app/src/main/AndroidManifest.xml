@@ -8,6 +8,11 @@
         android:label="@string/app_name"
         tools:ignore="MissingApplicationIcon">
 
+        <!-- Lets the Karoo check the latest GitHub release for updates. -->
+        <meta-data
+            android:name="io.hammerhead.karooext.MANIFEST_URL"
+            android:value="https://github.com/dabsy1111/karoo-loo-water/releases/latest/download/manifest.json" />
+
         <service
             android:name=".LooWaterExtension"
             android:exported="true"
