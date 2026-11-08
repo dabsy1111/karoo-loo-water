@@ -35,21 +35,35 @@ object Geo {
     fun compassPoint(bearing: Double): String = compass[((bearing / 45.0).roundToInt()) % 8]
 
     /** Arrow relative to the rider's heading, so "↑" means straight ahead. */
-    fun relativeArrow(bearing: Double, heading: Double): String {
+    fun relativeArrow(bearing: Double, heading: Double): String = arrows[arrowIndex(bearing, heading, null)]
+
+    fun arrowFor(index: Int): String = arrows[index]
+
+    /**
+     * Which of the 8 arrows to show. With [previous], the arrow only moves on once the
+     * direction is 10 degrees past the boundary, so GPS heading wobble doesn't make it
+     * flick back and forth (each flick is a redraw).
+     */
+    fun arrowIndex(bearing: Double, heading: Double, previous: Int?): Int {
         val rel = ((bearing - heading) % 360 + 360) % 360
-        return arrows[((rel / 45.0).roundToInt()) % 8]
+        val nearest = ((rel / 45.0).roundToInt()) % 8
+        if (previous == null || previous == nearest) return nearest
+        val offFromPrevious = Math.abs(((rel - previous * 45.0) % 360 + 540) % 360 - 180)
+        return if (offFromPrevious > 22.5 + 10) nearest else previous
     }
 
     fun formatDistance(meters: Double, imperial: Boolean): String = if (imperial) {
         val miles = meters / 1609.344
         when {
-            miles < 0.1 -> "${(meters * 3.28084 / 10).roundToInt() * 10} ft"
+            // 50 ft steps: fewer redraws (battery), nothing lost.
+            miles < 0.1 -> "${maxOf(50, (meters * 3.28084 / 50).roundToInt() * 50)} ft"
             miles < 10 -> "%.1f mi".format(java.util.Locale.US, miles)
             else -> "${miles.roundToInt()} mi"
         }
     } else {
         when {
-            meters < 1000 -> "${(meters / 10).roundToInt() * 10} m"
+            // 50 m steps: plenty to judge a stop by, and far fewer redraws (battery).
+            meters < 975 -> "${maxOf(50, (meters / 50).roundToInt() * 50)} m"
             meters < 10_000 -> "%.1f km".format(java.util.Locale.US, meters / 1000)
             else -> "${(meters / 1000).roundToInt()} km"
         }

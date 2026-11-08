@@ -15,6 +15,8 @@ import io.hammerhead.karooext.models.ViewConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -29,17 +31,19 @@ class FinderDataType(
     /** Also expose the distance (metres) as a numeric stream, for anything that wants it. */
     override fun startStream(emitter: Emitter<StreamState>) {
         val job = CoroutineScope(Dispatchers.Default).launch {
-            NearbyFinder.state(category).collect { state ->
-                when (state) {
-                    is FinderState.Found -> emitter.onNext(
-                        StreamState.Streaming(
-                            DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to state.distanceM)),
-                        ),
-                    )
-                    is FinderState.WaitingForGps -> emitter.onNext(StreamState.Searching)
-                    else -> emitter.onNext(StreamState.NotAvailable)
+            NearbyFinder.state(category)
+                .map { state ->
+                    when (state) {
+                        // Rounded to 10 m so an unchanged reading isn't re-sent every second.
+                        is FinderState.Found -> StreamState.Streaming(
+                            DataPoint(dataTypeId, mapOf(DataType.Field.SINGLE to Math.round(state.distanceM / 10.0) * 10.0)),
+                        )
+                        is FinderState.WaitingForGps -> StreamState.Searching
+                        else -> StreamState.NotAvailable
+                    }
                 }
-            }
+                .distinctUntilChanged()
+                .collect { emitter.onNext(it) }
         }
         emitter.setCancellable { job.cancel() }
     }
@@ -54,8 +58,9 @@ class FinderDataType(
         val job = CoroutineScope(Dispatchers.Default).launch {
             // collect (not collectLatest): StateFlow conflates during the delay, so the newest state
             // is always drawn; collectLatest would cancel the delay and hit ViewEmitter's 900 ms drop.
-            NearbyFinder.state(category).collect { state ->
-                emitter.updateView(render(context, config, display(state)))
+            // Battery: only redraw when the words on screen change, not on every GPS fix.
+            NearbyFinder.state(category).map { display(it) }.distinctUntilChanged().collect { shown ->
+                emitter.updateView(render(context, config, shown))
                 // Karoo drops view updates closer than ~1 s apart; pace ourselves.
                 delay(1_000)
             }

@@ -39,6 +39,10 @@ class LooWaterExtension : KarooExtension(EXTENSION_ID, "1.0") {
 
     /** Hardware bonus buttons (SRAM AXS / Blips) can trigger the same routing as a tap. */
     override fun onBonusAction(actionId: String) {
+        if (actionId == STOP_NAV_ACTION) {
+            NearbyFinder.onStopNavigation()
+            return
+        }
         Category.fromActionId(actionId)?.let { NearbyFinder.onTap(it) }
     }
 
@@ -74,5 +78,6 @@ class LooWaterExtension : KarooExtension(EXTENSION_ID, "1.0") {
 
     companion object {
         const val EXTENSION_ID = "loowater"
+        const val STOP_NAV_ACTION = "stop-nav"
     }
 }

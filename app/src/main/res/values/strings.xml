@@ -12,6 +12,7 @@
 
     <string name="action_toilet">Route to nearest toilet</string>
     <string name="action_water">Route to nearest water</string>
+    <string name="action_stop">Stop toilet / water navigation</string>
 
     <string name="settings_data">Data</string>
     <string name="settings_reload">Reload data now</string>

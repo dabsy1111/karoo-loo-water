@@ -39,6 +39,10 @@ sealed class FinderState {
         val bearingDeg: Double,
         val heading: Double?,
         val hours: OpeningHours.Status,
+        /** Direction arrow relative to heading (with hysteresis), null if heading unknown. */
+        val arrow: String? = null,
+        /** The Karoo is navigating to one of our pins of this category (a tap stops it). */
+        val navigating: Boolean = false,
     ) : FinderState()
     data class NoneFound(val radiusM: Int) : FinderState()
     data class Failed(val reason: String) : FinderState()
@@ -57,12 +61,25 @@ object NearbyFinder {
     private const val RETRY_AFTER_FAILURE_MS = 60_000L
 
     /**
+     * Battery: the full search over every loaded place only runs after moving this far or
+     * this long since the last one. Each GPS fix in between just measures the distance to a
+     * short list of candidates (every place that could have become nearest by then).
+     */
+    private const val REBUILD_MOVE_M = 100.0
+    private const val REBUILD_AGE_MS = 60_000L
+    /** Keep the GPS feed briefly after the last field leaves the screen (page swipes). */
+    private const val LOCATION_GRACE_MS = 30_000L
+
+    /**
      * Auto-navigate: after opening the pin screen, press the same buttons a rider would
      * (bottom-right accepts the pin, top-right moves to Navigate, bottom-right starts it).
      */
     private const val PIN_SCREEN_OPEN_MS = 1_500L
     private const val BETWEEN_PRESSES_MS = 350L
     private const val CONFIRM_NAV_WITHIN_MS = 4_000L
+    /** Stopping: top-left + top-right together opens the control centre, then bottom-right twice. */
+    private const val CONTROL_CENTRE_OPEN_MS = 700L
+    private const val PIN_ID_PREFIX = "loowater-"
 
     private class Tile(val places: List<Place>, val fetchedAtMs: Long)
 
@@ -79,6 +96,23 @@ object NearbyFinder {
     @Volatile private var lastFailureMs = 0L
     @Volatile private var lastSuccessMs = 0L
     @Volatile private var lastFailureWasServer = false
+
+    private class Candidates(
+        val center: LatLng,
+        val builtAtMs: Long,
+        val dataVersion: Int,
+        val places: List<Pair<Place, OpeningHours.Status>>,
+    )
+
+    private val candidates = ConcurrentHashMap<Category, Candidates>()
+    private val lastArrow = ConcurrentHashMap<Category, Int>()
+    /** Where we last dropped a pin per category, to recognise our own navigation. */
+    private val lastPin = ConcurrentHashMap<Category, LatLng>()
+    /** Bumped whenever tiles or type settings change, so candidates are rebuilt. */
+    @Volatile private var dataVersion = 0
+
+    @Volatile private var locationConsumer: String? = null
+    private var locationRelease: Job? = null
 
     private val states = Category.entries.associateWith { MutableStateFlow<FinderState>(FinderState.WaitingForGps) }
     private val viewers = Category.entries.associateWith { AtomicInteger(0) }
@@ -104,12 +138,11 @@ object NearbyFinder {
         client = TileClient(karooSystem)
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-        consumerIds += karoo.addConsumer<OnLocationChanged> { loc ->
-            location = LatLng(loc.lat, loc.lng)
-            heading = loc.orientation
-            refresh()
+        consumerIds += karoo.addConsumer<OnNavigationState> {
+            navState = it.state
+            // Fields show "tap to stop" while navigating to one of our pins.
+            Category.entries.forEach { c -> recompute(c) }
         }
-        consumerIds += karoo.addConsumer<OnNavigationState> { navState = it.state }
         consumerIds += karoo.addConsumer<UserProfile> { profile ->
             imperial = profile.preferredUnit.distance == UserProfile.PreferredUnit.UnitType.IMPERIAL
         }
@@ -118,12 +151,53 @@ object NearbyFinder {
         scope.launch {
             while (isActive) {
                 delay(60_000)
-                refresh()
+                if (locationConsumer != null) refresh()
+            }
+        }
+    }
+
+    /**
+     * Battery: only listen to GPS while something needs it (a field on screen, a tap
+     * waiting for data, or auto-navigation running). Outside rides nothing runs.
+     */
+    @Synchronized
+    private fun updateLocationFeed() {
+        val wanted = viewers.values.any { it.get() > 0 } ||
+            navigateWhenReady.values.any { it.get() } ||
+            autoNavRunning.get()
+        if (wanted) {
+            locationRelease?.cancel()
+            locationRelease = null
+            if (locationConsumer == null) {
+                locationConsumer = karoo.addConsumer<OnLocationChanged> { loc ->
+                    location = LatLng(loc.lat, loc.lng)
+                    heading = loc.orientation
+                    refresh()
+                }
+            }
+        } else if (locationConsumer != null && locationRelease == null) {
+            locationRelease = scope.launch {
+                delay(LOCATION_GRACE_MS)
+                synchronized(this@NearbyFinder) {
+                    locationRelease = null
+                    val stillUnwanted = viewers.values.all { it.get() <= 0 } &&
+                        navigateWhenReady.values.none { it.get() } &&
+                        !autoNavRunning.get()
+                    if (stillUnwanted) {
+                        locationConsumer?.let { karoo.removeConsumer(it) }
+                        locationConsumer = null
+                        location = null // don't route from a stale position later
+                        candidates.clear()
+                        Timber.i("No fields on screen: GPS feed released")
+                    }
+                }
             }
         }
     }
 
     fun stop() {
+        locationConsumer?.let { karoo.removeConsumer(it) }
+        locationConsumer = null
         consumerIds.forEach { karoo.removeConsumer(it) }
         consumerIds.clear()
         scope.cancel()
@@ -131,22 +205,31 @@ object NearbyFinder {
 
     fun viewAttached(category: Category) {
         viewers.getValue(category).incrementAndGet()
+        if (::karoo.isInitialized) updateLocationFeed()
         refresh()
     }
 
     fun viewDetached(category: Category) {
         viewers.getValue(category).decrementAndGet()
+        if (::karoo.isInitialized) updateLocationFeed()
     }
 
     /** Field tapped or bonus button pressed: route to the best current option. */
     fun onTap(category: Category) {
         // A stale PendingIntent can start a fresh process where the service (and start()) never ran.
         if (!::karoo.isInitialized) return
+        val current = ourNavigation()
+        if (current != null) {
+            // Second tap on the same half stops; a tap on the other half switches.
+            stopNavigation(then = if (current == category) null else category)
+            return
+        }
         when (val state = recompute(category)) {
             is FinderState.Found -> navigateTo(category, state.place)
             is FinderState.NoneFound -> alert(category, "None found", noneFoundDetail(state))
             else -> {
                 navigateWhenReady.getValue(category).set(true)
+                updateLocationFeed()
                 when {
                     !TileClient.configured -> alert(category, "Not set up", "Data URL missing in gradle.properties")
                     location == null -> alert(category, "No GPS fix yet", "Will route once location is known")
@@ -162,12 +245,14 @@ object NearbyFinder {
 
     /** A type switch changed on the settings screen: re-pick straight away. */
     fun onSettingsChanged() {
+        dataVersion++
         Category.entries.forEach { recompute(it) }
     }
 
     /** "Reload data" on the settings screen: drop cached tiles and fetch them again. */
     fun reloadData() {
         tiles.clear()
+        dataVersion++
         lastFailureMs = 0
         lastSuccessMs = 0
         if (::karoo.isInitialized) {
@@ -179,7 +264,14 @@ object NearbyFinder {
     // ------------------------------------------------------------------ internals
 
     private fun refresh() {
-        Category.entries.forEach { recompute(it) }
+        for (category in Category.entries) {
+            val state = recompute(category)
+            // A tap that was waiting only for a GPS fix (data already loaded) routes now.
+            if (state is FinderState.Found && navigateWhenReady.getValue(category).compareAndSet(true, false)) {
+                navigateTo(category, state.place)
+                updateLocationFeed()
+            }
+        }
         val wanted = Category.entries.any { viewers.getValue(it).get() > 0 || navigateWhenReady.getValue(it).get() }
         if (wanted) fetchMissing(force = false)
     }
@@ -207,21 +299,62 @@ object NearbyFinder {
     }
 
     private fun best(category: Category, here: LatLng): FinderState.Found? {
-        val now = Calendar.getInstance()
-        return tiles.values
+        val now = System.currentTimeMillis()
+        var c = candidates[category]
+        if (c == null || c.dataVersion != dataVersion || now - c.builtAtMs > REBUILD_AGE_MS ||
+            Geo.distanceM(c.center, here) > REBUILD_MOVE_M
+        ) {
+            c = buildCandidates(category, here, now)
+            candidates[category] = c
+        }
+        // Per GPS fix: a handful of distance sums instead of a search over every place.
+        return c.places
+            .minByOrNull { Geo.distanceM(here, it.first.location) }
+            ?.let { (place, hours) ->
+                val bearing = Geo.bearingDeg(here, place.location)
+                val arrow = heading?.let { h ->
+                    Geo.arrowIndex(bearing, h, lastArrow[category]).also { lastArrow[category] = it }
+                }
+                FinderState.Found(
+                    place,
+                    Geo.distanceM(here, place.location),
+                    bearing,
+                    heading,
+                    hours,
+                    arrow?.let(Geo::arrowFor),
+                    navigating = ourNavigation() == category,
+                )
+            }
+    }
+
+    /**
+     * The full search: nearest place that isn't confidently closed, plus every other open
+     * place that could overtake it before the next rebuild. Anything further than
+     * nearest + 2 x [REBUILD_MOVE_M] can't (moving 100 m changes each distance by at most 100 m).
+     */
+    private fun buildCandidates(category: Category, here: LatLng, nowMs: Long): Candidates {
+        val clock = Calendar.getInstance()
+        fun hours(p: Place) = OpeningHours.status(p.openingHours, clock, p.location.lat, p.location.lng)
+
+        val sorted = tiles.values
             .asSequence()
             .flatMap { it.places.asSequence() }
             .filter { category in it.categories && Settings.allows(it, category) }
-            .map { place -> place to Geo.distanceM(here, place.location) }
+            .map { it to Geo.distanceM(here, it.location) }
             .sortedBy { it.second }
-            // Hours are only evaluated until the first place that isn't confidently closed.
-            .map { (place, dist) ->
-                Triple(place, dist, OpeningHours.status(place.openingHours, now, place.location.lat, place.location.lng))
-            }
-            .firstOrNull { it.third != OpeningHours.Status.CLOSED }
-            ?.let { (place, dist, hours) ->
-                FinderState.Found(place, dist, Geo.bearingDeg(here, place.location), heading, hours)
-            }
+            .toList()
+        val nearestOpen = sorted.firstOrNull { hours(it.first) != OpeningHours.Status.CLOSED }?.second
+        val list = if (nearestOpen == null) {
+            emptyList()
+        } else {
+            val limit = nearestOpen + 2 * REBUILD_MOVE_M + 20
+            sorted.asSequence()
+                .takeWhile { it.second <= limit }
+                .map { it.first to hours(it.first) }
+                .filter { it.second != OpeningHours.Status.CLOSED }
+                .toList()
+        }
+        return Candidates(here, nowMs, dataVersion, list)
     }
 
     private fun fetchMissing(force: Boolean) {
@@ -250,6 +383,7 @@ object NearbyFinder {
             for (key in keys) {
                 val places = client.fetch(key)
                 tiles[key] = Tile(places, System.currentTimeMillis())
+                dataVersion++
                 Timber.i("Tile $key: ${places.size} places")
                 // Show results from the nearest tiles straight away.
                 Category.entries.forEach { recompute(it) }
@@ -288,6 +422,7 @@ object NearbyFinder {
             // Leave the tap pending while more tiles are still needed and nothing has failed.
             if (state is FinderState.Searching && failure == null) continue
             navigateWhenReady.getValue(category).set(false)
+            updateLocationFeed()
             when (state) {
                 is FinderState.Found -> navigateTo(category, state.place)
                 is FinderState.NoneFound -> alert(category, "None found", noneFoundDetail(state))
@@ -319,6 +454,7 @@ object NearbyFinder {
                     autoNavigate(category, place)
                 } finally {
                     autoNavRunning.set(false)
+                    updateLocationFeed()
                 }
             }
         }
@@ -345,12 +481,81 @@ object NearbyFinder {
         alert(category, "Couldn't start navigation", "Tap the field to try again")
     }
 
+    /** Which of our categories the Karoo is navigating to, or null (idle, a route, or someone else's pin). */
+    private fun ourNavigation(): Category? {
+        val nav = navState as? OnNavigationState.NavigationState.NavigatingToDestination ?: return null
+        val id = nav.destination.id
+        if (id.startsWith(PIN_ID_PREFIX)) {
+            val name = id.removePrefix(PIN_ID_PREFIX).substringBefore('-')
+            Category.entries.firstOrNull { it.name == name }?.let { return it }
+        }
+        // In case the Karoo gives the destination its own id: match by position instead.
+        val dest = LatLng(nav.destination.lat, nav.destination.lng)
+        return lastPin.entries.firstOrNull { Geo.distanceM(it.value, dest) < 25 }?.key
+    }
+
+    /** "Stop toilet/water navigation" bonus action. */
+    fun onStopNavigation() {
+        if (!::karoo.isInitialized) return
+        if (ourNavigation() == null) {
+            alert(Category.TOILET, "Nothing to stop", "Not navigating to a toilet or water stop")
+            return
+        }
+        stopNavigation(then = null)
+    }
+
+    /**
+     * Ends navigation to one of our pins by pressing the buttons a rider would, then checks
+     * it worked. Only ever called while navigating to our own pin, never a loaded route.
+     * With [then], navigates to the nearest of that category afterwards (switching).
+     */
+    private fun stopNavigation(then: Category?) {
+        if (!autoNavRunning.compareAndSet(false, true)) return // a sequence is already running
+        updateLocationFeed()
+        scope.launch {
+            var stopped = false
+            try {
+                karoo.dispatch(PerformHardwareAction.ControlCenterComboPress) // top-left + top-right
+                delay(CONTROL_CENTRE_OPEN_MS)
+                karoo.dispatch(PerformHardwareAction.BottomRightPress)
+                delay(BETWEEN_PRESSES_MS)
+                karoo.dispatch(PerformHardwareAction.BottomRightPress)
+
+                val deadline = System.currentTimeMillis() + CONFIRM_NAV_WITHIN_MS
+                while (System.currentTimeMillis() < deadline) {
+                    if (navState is OnNavigationState.NavigationState.Idle) {
+                        stopped = true
+                        break
+                    }
+                    delay(250)
+                }
+            } finally {
+                autoNavRunning.set(false)
+            }
+            if (!stopped) {
+                Timber.w("Stopping navigation didn't work; nav state is $navState")
+                alert(then ?: Category.TOILET, "Couldn't stop navigation", "Stop it from the Karoo menu")
+                updateLocationFeed()
+                return@launch
+            }
+            Timber.i("Navigation stopped")
+            Category.entries.forEach { recompute(it) }
+            if (then != null) {
+                delay(500) // let the ride screen settle before the pin screen opens
+                val state = recompute(then)
+                if (state is FinderState.Found) navigateTo(then, state.place) else onTap(then)
+            }
+            updateLocationFeed()
+        }
+    }
+
     private fun showPin(category: Category, place: Place) {
+        lastPin[category] = place.location
         val label = appContext.getString(category.shortLabelRes)
         karoo.dispatch(
             LaunchPinDrop(
                 Symbol.POI(
-                    id = "loowater-${place.id}",
+                    id = "$PIN_ID_PREFIX${category.name}-${place.id}",
                     lat = place.location.lat,
                     lng = place.location.lng,
                     type = category.poiType,

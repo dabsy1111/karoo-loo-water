@@ -31,6 +31,14 @@ The data comes from OpenStreetMap, but the Karoo never queries OpenStreetMap dir
 - **Toilet & Water**: both in one field, toilet on the left and water on the right (stacked if the field is narrower than full width). Made for a full-width, quarter-height slot. Tap either half to navigate to that one.
 - **Nearest Toilet** and **Nearest Water**: one each, for smaller slots.
 
+Tapping while the Karoo is navigating to one of the extension's own pins stops that navigation (same half) or switches to the other (other half). It presses top-left + top-right, then bottom-right twice, and checks navigation really ended. A route you loaded yourself is never stopped. The **Stop toilet / water navigation** bonus action does the same for AXS buttons or Blips.
+
+## Battery
+
+The extension only listens to GPS while one of its fields is on screen (or a tap is waiting), and lets go 30 seconds after the last one leaves. Between full searches (every 100 m or minute) each GPS fix only checks a short list of places that could have become nearest. Fields redraw only when their text changes; distances under 1 km show in 50 m steps and the arrow ignores small heading wobble.
+
+To measure its use: `adb shell dumpsys batterystats --reset` before a ride, then afterwards `adb shell dumpsys batterystats --charged` and find the app's `u0a…` line under "Estimated power use".
+
 ## Settings screen
 
 Open **Loo & Water** from the Karoo's Extensions page (or app list) to:
