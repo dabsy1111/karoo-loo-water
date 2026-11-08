@@ -30,7 +30,4 @@
     <BonusAction
         actionId="route-water"
         displayName="@string/action_water" />
-    <BonusAction
-        actionId="stop-nav"
-        displayName="@string/action_stop" />
 </ExtensionInfo>

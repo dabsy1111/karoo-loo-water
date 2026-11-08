@@ -31,7 +31,7 @@ The data comes from OpenStreetMap, but the Karoo never queries OpenStreetMap dir
 - **Toilet & Water**: both in one field, toilet on the left and water on the right (stacked if the field is narrower than full width). Made for a full-width, quarter-height slot. Tap either half to navigate to that one.
 - **Nearest Toilet** and **Nearest Water**: one each, for smaller slots.
 
-Tapping while the Karoo is navigating to one of the extension's own pins stops that navigation (same half) or switches to the other (other half). It presses top-left + top-right, then bottom-right twice, and checks navigation really ended. A route you loaded yourself is never stopped. The **Stop toilet / water navigation** bonus action does the same for AXS buttons or Blips.
+Tapping while the Karoo is already navigating only opens the pin screen; it never presses buttons, so a current route or destination is left for you to change. (Tap-to-stop was tried in 1.5 and removed: the control centre doesn't always open on the navigation page.)
 
 ## Battery
 

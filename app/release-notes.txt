@@ -1,3 +1,2 @@
-Tap the half you are navigating to again to stop navigation, or the other half to switch.
+Removed tap-to-stop navigation: the Karoo's control centre doesn't always open on the navigation page, so the button presses weren't safe. Tapping while navigating now just opens the pin screen.
 Battery: GPS only while a field is on screen, far less work per GPS fix, fewer redraws.
-Settings screen with toilet types, and the combined Toilet & Water field.

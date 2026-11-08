@@ -19,8 +19,7 @@ object FieldText {
                 OpeningHours.Status.CLOSED -> "closed" // filtered out upstream; kept for completeness
             }
             val fee = if (state.place.fee) " · fee" else ""
-            val status = if (state.navigating) "tap to stop" else "$hours$fee"
-            Display(Geo.formatDistance(state.distanceM, NearbyFinder.imperial), status, false, direction)
+            Display(Geo.formatDistance(state.distanceM, NearbyFinder.imperial), "$hours$fee", false, direction)
         }
         FinderState.WaitingForGps -> Display("--", "no GPS", false)
         FinderState.Searching -> Display("…", "searching", false)
