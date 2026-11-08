@@ -1,0 +1,3 @@
+Tap the half you are navigating to again to stop navigation, or the other half to switch.
+Battery: GPS only while a field is on screen, far less work per GPS fix, fewer redraws.
+Settings screen with toilet types, and the combined Toilet & Water field.

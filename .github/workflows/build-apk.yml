@@ -66,17 +66,26 @@ jobs:
           mkdir -p out
           cp app/build/outputs/apk/release/app-release.apk "out/LooWater-$NAME.apk"
           cp app/build/outputs/apk/release/app-release.apk out/LooWater.apk
-          cat > out/manifest.json <<EOF
-          {
-            "label": "Loo & Water",
-            "packageName": "io.github.dan.loowater",
-            "latestApkUrl": "https://github.com/${{ github.repository }}/releases/latest/download/LooWater.apk",
-            "latestVersion": "$NAME",
-            "latestVersionCode": $CODE,
-            "developer": "dabsy1111",
-            "description": "Nearest open public toilet and drinking water, with tap-to-navigate data fields."
+          cp app/icon.png out/icon.png
+          # The Karoo reads this to offer updates (see karoo-ext KarooAppManifest).
+          NAME="$NAME" CODE="$CODE" REPO="${{ github.repository }}" python3 - <<'PY'
+          import json, os
+          base = f"https://github.com/{os.environ['REPO']}/releases/latest/download"
+          manifest = {
+              "label": "Loo & Water",
+              "packageName": "io.github.dan.loowater",
+              "iconUrl": f"{base}/icon.png",
+              "latestApkUrl": f"{base}/LooWater.apk",
+              "latestVersion": os.environ["NAME"],
+              "latestVersionCode": int(os.environ["CODE"]),
+              "developer": "github.com/dabsy1111",
+              "description": "Nearest open public toilet and drinking water, with tap-to-navigate data fields.",
+              "releaseNotes": open("app/release-notes.txt", encoding="utf-8").read().strip(),
+              "tags": ["navigation"],
           }
-          EOF
+          with open("out/manifest.json", "w", encoding="utf-8") as f:
+              json.dump(manifest, f, indent=2, ensure_ascii=False)
+          PY
           cat out/manifest.json
 
       - uses: softprops/action-gh-release@v2
@@ -88,3 +97,4 @@ jobs:
             out/LooWater-${{ steps.meta.outputs.name }}.apk
             out/LooWater.apk
             out/manifest.json
+            out/icon.png
